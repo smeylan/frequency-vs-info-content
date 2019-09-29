@@ -230,3 +230,21 @@ getHighFreqNonDictWords = function(resultsObj, returnType='latex'){
         return(rstring)
     }
 }
+
+getBinnedLengthForPredictor = function(df, predictor, numBins){
+    df$quantile = floor(ecdf(df[[predictor]])(df[[predictor]]) / (1/numBins)) 
+    se <- function(x) sqrt(var(x)/length(x))
+        
+    length_gram_prob_mean = aggregate(ortho.len ~ quantile, df, mean)
+    names(length_gram_prob_mean) = c('quantile','mean_ortho.len')    
+    length_gram_prob_se = aggregate(ortho.len ~ quantile, df, se)
+    names(length_gram_prob_se) =  c('quantile','se_ortho.len')
+    length_gram_prob_1= merge(length_gram_prob_mean, length_gram_prob_se)
+    length_gram_prob = aggregate(get(predictor) ~ quantile, df, mean)    
+    names(length_gram_prob) =  c('quantile','mean_surprisal')    
+    length_prob  = merge(length_gram_prob_1, length_gram_prob)              
+    length_prob$se_high = length_prob$mean_ortho.len+length_prob$se_ortho.len
+    length_prob$se_low = length_prob$mean_ortho.len-length_prob$se_ortho.len    
+    length_prob$predictor = predictor
+    return(length_prob)
+}
