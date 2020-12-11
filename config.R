@@ -4,4 +4,8 @@ paths = list()
 paths[['P11_Google1T']] = "/shared_hd0/corpora/Google1T_Piantadosi/"
 
 # Paths to currrent recomputed datasets
-paths[['MG_Google1T']] = "/home/stephan/notebooks/frequency-vs-info-content-data/"
+# with dictionary filtering
+paths[['current_filtered']] = "/home/stephan/notebooks/frequency-vs-info-content-data/dictionary_filtered/"
+
+# without dictionary filtering
+paths[['current_unfiltered']] = "/home/stephan/notebooks/frequency-vs-info-content-data/unfiltered/"

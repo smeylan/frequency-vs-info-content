@@ -248,3 +248,23 @@ getBinnedLengthForPredictor = function(df, predictor, numBins){
     length_prob$predictor = predictor
     return(length_prob)
 }
+
+
+longColNames = list()
+longColNames[['ipa_ss']] = "PIC - Phonemes"
+longColNames[["ipa_ss"]] = "PIC - Phonemes"
+longColNames[["ipa_n"]] = "Number of Phonemes"
+longColNames[["ipa_ss-ipa_n"]] = "Difference: PIC vs. No. Phonemes"
+longColNames[["character_ss"]] = "PIC - Characters"
+longColNames[["ortho_n"]] = "Number of Characters"
+longColNames[["character_ss-ortho_n"]] = "Difference: PIC vs. No. Characters"
+longColNames[["unigramSurprisal"]] = "Unigram Surprisal"
+longColNames[["trigramSurprisal"]] = "Trigram Surprisal"
+longColNames[["unigramSurprisal-trigramSurprisal"]] = "Difference: Unigram Surprisal - Trigram Surprisal"
+longColNames[["frequency"]] = "Frequency"
+
+expandColNames = function(X){
+    X = as.factor(X)
+    levels(X) = sapply(levels(X), function(x){return(longColNames[[x]])})
+    return(X)
+}

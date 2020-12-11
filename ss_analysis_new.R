@@ -60,7 +60,28 @@ gb12_langRemapper[['Ger-all']] = 'German'
 gb12_langRemapper[['Fre-all']] = 'French'
 gb12_langRemapper[['Rus-all']] = 'Russian'
 
-getScoresForLanguage= function(resultsPath, datasetName, sublexSize, language, endMarker, corMethod, numCor=25000, contextLimit=0, opusFilter=F, morphSimple=F, filename='opus_meanSurprisal.csv',languageCode=NA){	
+
+longColNames = list()
+longColNames[['ipa_ss']] = "PIC - Phonemes"
+longColNames[["ipa_ss"]] = "PIC - Phonemes"
+longColNames[["ipa_n"]] = "Number of Phonemes"
+longColNames[["ipa_ss-ipa_n"]] = "Difference: PIC vs. No. Phonemes"
+longColNames[["character_ss"]] = "PIC - Characters"
+longColNames[["ortho_n"]] = "Number of Characters"
+longColNames[["character_ss-ortho_n"]] = "Difference: PIC vs. No. Characters"
+longColNames[["unigramSurprisal"]] = "Unigram Surprisal"
+longColNames[["trigramSurprisal"]] = "Trigram Surprisal"
+longColNames[["unigramSurprisal-trigramSurprisal"]] = "Difference: Unigram Surprisal - Trigram Surprisal"
+longColNames[["frequency"]] = "Frequency"
+
+expandColNames = function(X){   
+    X = as.factor(X)
+    levels(X) = sapply(levels(X), function(x){return(longColNames[[x]])})    
+    return(X)
+}
+
+
+getScoresForLanguage= function(resultsPath, datasetName, sublexSize, language, endMarker, corMethod, numCor=25000, contextLimit=0, opusFilter=F, morphSimple=F, filename='meanSurprisal.csv',languageCode=NA){	
 	# Used in Piantadosi et al. (2011) Replication on Google 1T and Books 2012.ipynb	
 	
     # Load the lexical surprisal, merge against the OPUS dataset, and check with words are in the relevant aspell dictionary
@@ -81,11 +102,7 @@ getScoresForLanguage= function(resultsPath, datasetName, sublexSize, language, e
 
 
 	df = df[order(df$index),]
-	print(paste0('original number in ',language,': ',nrow(df)))
-	if (nrow(df) > numCor){
-		df = df[1:numCor,] # take the top 25000 words		
-	}
-    print('Limiting analysis')
+	
 
 	if (contextLimit > 0){
 		df = subset(df, numContexts > contextLimit)
@@ -116,13 +133,13 @@ getScoresForLanguage= function(resultsPath, datasetName, sublexSize, language, e
         df = subset(df, word %in% morph_simp)
     } 
 
-
 	if (opusFilter){
 		#filter by frequency residuals from the relevant OPUS dataset. This removes words for which the dataset may not have a good estimate of lexical statistics
 		
         print('Filtering...')
-		opusPath = paste0('data/OPUS/noFilter_',getISOforLangString(language),'_2013.txt')
-		opus = read.table(opusPath, header=T, encoding='utf-8')		
+        opusPath = paste0(resultsPath, '/OPUS/',getISOforLangString(language),'/00_lexicalSurprisal/', 'unigram_list.txt')
+
+		opus = read.table(opusPath, header=T, encoding='utf-8', quote="")		
         
 
 		names(opus)[names(opus) == 'count'] = 'opusCount'
@@ -134,12 +151,17 @@ getScoresForLanguage= function(resultsPath, datasetName, sublexSize, language, e
 		
 		# df = subset(df, df$opus_residual_empirical > .1 & df$opus_residual_empirical < .9)			
         df = merge(opus, df)
-        df = df[order(df$frequency, decreasing=T),][1:25000,]        
+        df = df[order(df$frequency, decreasing=T),]
 	}
 	print(paste0('filtered number in ',language,': ',nrow(df)))
 	
+    print(paste0('original number in ',language,': ',nrow(df)))
+	if (nrow(df) > numCor){
+		df = df[1:numCor,] # take the top 25000 words		
+	}
+    print('Limiting analysis')
     
-    #if endMarker is false, remove the end symbol from the sublexical surprisal array
+    #if endMarker is false, remove the end symbol from the sublexical surprisal array and recompute
     if (!endMarker){
         if('ipa_ss_array' %in% names(df)){
             df$ipa_ss_array = sapply(strsplit(gsub('\\[','',gsub('\\]','',df$ipa_ss_array)),','), function(x){as.numeric(x)[1:(length(x)-1)]})
@@ -195,7 +217,7 @@ getScoresForLanguage= function(resultsPath, datasetName, sublexSize, language, e
     }    
     
     print('Getting correlations')
-    results[['score']] = getCorrelations(df,corMethod)
+    results[['score']] = getCorrelations2(df,corMethod)
     results[['score']]$endMarker = endMarker
     if (datasetName  == 'OPUS'){
     	results[['score']]$language = getLanguageForISO(language)    	
@@ -257,19 +279,23 @@ getCorrelations = function(dataset, corMethod){
     print(names(dataset))
     if ('token_ipa_ss' %in% names(dataset)){
         print('token_ipa_ss found')
-        sublexVar = c(sublexVar, 'token_ipa_ss')
+        sublexVars = c(sublexVars, list(c('token_ipa_ss','ipa_n')))
     }    
+
+    # these are added separately because of Hebrew
     if ('token_character_ss' %in% names(dataset)){
-        sublexVar = c(sublexVar, 'token_character_ss')
         print('token_character_ss found')
+        sublexVars = c(sublexVars, list(c('token_character_ss', 'ortho_n')))
     }    
 
     #print(dataset$character_ipa_ss[1:100])
     #stop()
 
     df = do.call('rbind', lapply(lexVar, function(lv){ #iterate over lexical variables
-        do.call('rbind', lapply(sublexVars, function(svs){ #iterate over sublexical variables            
+        do.call('rbind', lapply(sublexVars, function(svs){ #iterate over sublexical variables             
+            print(svs)
             if (!(lv %in% names(dataset)) | !(svs[1] %in% names(dataset)) | !(svs[2] %in% names(dataset))){
+                print('Missing something!')
                  singleCor = NA #dataset is missing relevant variable
                  ci = c(NA, NA)                 
             } else {
@@ -278,6 +304,8 @@ getCorrelations = function(dataset, corMethod){
                     stop('negative surprisal values')
                 }                               
                 dataset[[lv]] = inf2NA(dataset[[lv]])
+                dataset[[svs[1]]] = inf2NA(dataset[[svs[1]]])
+                dataset[[svs[2]]] = inf2NA(dataset[[svs[2]]])
 
                 # So we can use a single inner loop for bootstrapping
                 cors_df = percentile_bootstrap_cor_diff(dataset, lv, svs[1], svs[2], alpha=.01, residualize=F, corMethod=corMethod)
@@ -290,6 +318,73 @@ getCorrelations = function(dataset, corMethod){
     
     return(df)
 }
+
+getCorrelations2 = function(dataset, corMethod){
+    # Abstracted to handle xvars and yvars; yvars are compared directly
+    # calls _getCor2 twice, b/c there is different bootstrapping going on
+
+    sv_comparison = getCorHelper2(dataset,corMethod, xvars = c('unigramSurprisal', 'trigramSurprisal', 'frequency'),
+        yvars = list(c('ipa_ss','ipa_n'),c('character_ss','ortho_n')))
+    
+    lv_comparison = getCorHelper2(dataset,corMethod, xvars = c('ipa_ss','ipa_n','character_ss','ortho_n'),
+        yvars = list(c('unigramSurprisal', 'trigramSurprisal', 'frequency')))        
+
+    both_comparisons = rbind.fill(sv_comparison, lv_comparison)
+    return(both_comparisons)
+
+}
+
+ 
+ getCorHelper2 = function(dataset, corMethod, xvars, yvars){   
+    # Abstracted to handle xvars and yvars; yvars are dyads for comparison
+    
+    #!!! can't remember the function of this
+   
+    # print(names(dataset))
+    # if ('token_ipa_ss' %in% names(dataset)){
+    #     print('token_ipa_ss found')
+    #     sublexVars = c(sublexVars, list(c('token_ipa_ss','ipa_n')))
+    # }    
+
+    # # these are added separately because of Hebrew
+    # if ('token_character_ss' %in% names(dataset)){
+    #     print('token_character_ss found')
+    #     sublexVars = c(sublexVars, list(c('token_character_ss', 'ortho_n')))
+    # }    
+
+    #print(dataset$character_ipa_ss[1:100])
+    #stop()
+
+    df = do.call('rbind.fill', lapply(xvars, function(xv){ #iterate over lexical variables
+        do.call('rbind.fill', lapply(yvars, function(yvs){ #iterate over sublexical variables                         
+            if (!(xv %in% names(dataset)) | !(yvs[1] %in% names(dataset)) | !(yvs[2] %in% names(dataset))){
+                print('Missing something!')
+                 singleCor = NA #dataset is missing relevant variable
+                 ci = c(NA, NA) 
+                 return(data.frame())                
+            } else {
+                X = inf2NA(dataset[[xv]])
+                if (any(X[!is.na(X)] < 0)){
+                    stop('negative surprisal values')
+                }                               
+                dataset[[xv]] = inf2NA(X)
+                dataset[[yvs[1]]] = inf2NA(dataset[[yvs[1]]])
+                dataset[[yvs[2]]] = inf2NA(dataset[[yvs[2]]])                
+
+
+                # So we can use a single inner loop for bootstrapping
+                cors_df = percentile_bootstrap_cor_diff(dataset, xv, yvs[1], yvs[2], alpha=.01, residualize=F, corMethod=corMethod)
+                partial_cors_df = percentile_bootstrap_cor_diff(dataset, xv, yvs[1], yvs[2], alpha=.01, residualize=T, corMethod=corMethod)
+
+                return(rbind.fill(cors_df, partial_cors_df))   
+            }
+        }))
+    }))
+    
+    return(df)
+}
+
+
 simpleCap <- function(x) {
   s <- strsplit(x, " ")[[1]]
   paste(toupper(substring(s, 1,1)), tolower(substring(s, 2)),
@@ -360,7 +455,8 @@ getInfoContentDF = function(sp_lex_path, current_lex_path){
     combined = merge(sp_lex, current_lex, by='word')            
     combined = combined[!is.na(combined$mean_surprisal_weighted) & !is.na(combined$surprisal),]
     print(names(combined))
-    #combined[order(combined$frequency_x, decreasing=T),][1:25000,]    
+    #combined[order(combined$frequency_x, decreasing=T),][1:25000,]
+    
     
     # which items have the highest and lowest residuals?
     lm1 = lm(surprisal ~ mean_surprisal_weighted, combined)
@@ -375,45 +471,18 @@ getInfoContentCor = function(df){
     correlations['spearman'] = cor(df$surprisal, df$mean_surprisal_weighted, method='spearman')
     correlations['pearson'] = cor(df$surprisal, df$mean_surprisal_weighted, method='pearson')
 
-    freq_correlations = list()
+    freq_correlations = list(0)
     freq_correlations['spearman'] = cor(log(df$frequency.x/ sum(as.numeric(df$frequency.x))), log(df$frequency.y/ sum(as.numeric(df$frequency.y))), method='spearman')
     freq_correlations['pearson'] = cor(log(df$frequency.x/sum(as.numeric(df$frequency.x))), log(df$frequency.y/ sum(as.numeric(df$frequency.y))), method='pearson')    
-
-    numItems = nrow(df)
-    return(list(correlations, freq_correlations,numItems))
+    return(list(correlations, freq_correlations))
 }    
 
-getInfoContentPlot = function(df, file, xlims, ylims){
+getInfoContentPlot = function(df){
 	#Used in Mean Information Content Comparison for Google 1T.ipynb
 	
-    
-    options(repr.plot.width=5, repr.plot.height=5)
-
-    m = lm(surprisal ~ mean_surprisal_weighted, df)
-
-    eq <- substitute(italic(y) == a + b %.% italic(x)*","~~italic(R)^2~"="~r2,
-
-                list(        a = format(coef(m)[1], digits = 4),
-
-                               b = format(coef(m)[2], digits = 4),
-
-                               r2 = format(summary(m)$r.squared, digits = 3)))
-
-    r2 <- data.frame(x = xlims[2]*.4, y = ylims[2]*.9, eq = as.character(as.expression(eq)))    
-
-    p1 = ggplot(df) + stat_density_2d(geom = "raster", aes(x=mean_surprisal_weighted, y=surprisal,
-        fill = stat(density)), contour = FALSE
-    ) + scale_fill_viridis_c(
-    ) + xlab(
-        'Avg. Information Content (bits), UTF-8 Encoded Corpus') + ylab('Avg. Information Content (bits), ASCII Encoded Corpus') + geom_abline(intercept = 0, slope = 1, colour='red'
-    ) + coord_cartesian(xlim=xlims, ylim = ylims) + geom_smooth(aes(x=mean_surprisal_weighted, 
-    y=surprisal), method='glm', colour='cyan') + theme_bw(
-    ) + geom_text(aes(x=x, y=y, label = eq), data = r2, parse = TRUE,
-    colour='cyan'
-    ) + annotate('text', x=8, y=6, label = 'x = y', colour='red')
-    print(p1)
-
-    ggsave(file, width=5, height=5)
+    options(repr.plot.width=10, repr.plot.height=8, jupyter.plot_mimetypes = 'image/png')
+    ggplot(df) + geom_point(aes(x=mean_surprisal_weighted, y=surprisal))+xlab(
+        'Current Model')+ylab('Piantadosi et al. (2011)') + geom_abline(intercept = 0, slope = 1, colour='red')
 }    
 
 getBinnedLengthForPredictor = function(df, word_predictor, sentence_predictor, numBins){
@@ -660,60 +729,83 @@ partialCor2 = function(language, voi, toPartial, method='spearman',
     return(rdf)        
 }
 
-percentile_bootstrap_cor_diff = function(df, y, x1, x2, alpha=.05, residualize=F, R=2500, plot=F, corMethod='pearson'){
+percentile_bootstrap_cor_diff = function(df_local, x, y1, y2, alpha=.05, residualize, R=2500, plot=F, corMethod){
     # Following Wilcox, 2016; https://garstats.wordpress.com/2017/03/01/comp2dcorr/
     
-    df = df[!(is.na(df[[y]]) | is.na(df[[x1]]) | is.na(df[[y]])),] #drop na values; infinite 
+    df_local = df_local[!(is.na(df_local[[x]]) | is.na(df_local[[y1]]) | is.na(df_local[[y2]])),] #drop na values; infinite 
 
-    N <- nrow(df)
+    N <- nrow(df_local)
     hi = floor((1-alpha/2)*R+.5)
     lo = floor((alpha/2)*R+.5)
+    #print(paste('Hi:', hi))
+    #print(paste('Lo:', lo))
 
+    # bootstrapping
     samples = do.call('rbind',mclapply(1:R, function(r){
+    #samples = do.call('rbind',lapply(1:R, function(r){
         idx <- sample.int(N, N, replace = TRUE)         
-        df_copy = df
+        df_copy1 = df_local
+        df_copy2 = df_local
         
         if (residualize){
-            x1_residualized = lm(reformulate(termlabels = x2, response = x1), data=df_copy)$residuals
-            x2_residualized = lm(reformulate(termlabels = x1, response = x2), data=df_copy)$residuals
+            y1_residualized = lm(reformulate(termlabels = y2, response = y1), data=df_copy1)$residuals
+            y2_residualized = lm(reformulate(termlabels = y1, response = y2), data=df_copy2)$residuals
 
             # delayed assignment, else the second lm is fit AFTER a covariate is replaced
-            df_copy[[x1]] = x1_residualized
-            df_copy[[x2]] = x2_residualized
+            df_copy1[[y1]] = y1_residualized
+            df_copy2[[y2]] = y2_residualized
+            #!!! both y1 and y2 residualized
         }
         
-        corr1 <- cor(df_copy[idx,y], df_copy[idx,x1], method=corMethod) 
-        corr2 <-  cor(df_copy[idx,y], df_copy[idx,x2], method=corMethod)
+        corr1 <- cor(df_copy1[idx,x], df_copy1[idx,y1], method=corMethod)         
+        corr2 <-  cor(df_copy2[idx,x], df_copy2[idx,y2], method=corMethod)        
+        print('corr2:')
+        if (is.na(corr2)){
+            print(x)
+            print(df_local[idx,x][1:100])
+            print(y2)
+            print(df_local[idx,y2][1:100])
+            stop('corr2 is NA')
+        }
 
 
         return(data.frame(corr1=corr1, corr2=corr2))
+    #}))
     }, mc.cores=detectCores()))    
         
     corr1.boot <- samples$corr1
     corr2.boot <- samples$corr2                  
     
-    
-    if (residualize){
-        x1_residualized = lm(reformulate(termlabels = x2, response = x1), data=df)$residuals        
-        x1_empirical_cor = cor(x1_residualized, df[[y]], method=corMethod)    
+    #empirical
+    if (residualize){        
+        y1_residualized = lm(reformulate(termlabels = y2, response = y1), data=df_local)$residuals        
+        y1_empirical_cor = cor(y1_residualized, df_local[[x]], method=corMethod)    
+        y1_resid_var = y2
 
-        x2_residualized = lm(reformulate(termlabels = x1, response = x2), data=df)$residuals        
-        x2_empirical_cor = cor(x2_residualized, df[[y]], method=corMethod)    
+        y2_residualized = lm(reformulate(termlabels = y1, response = y2), data=df_local)$residuals        
+        y2_empirical_cor = cor(y2_residualized, df_local[[x]], method=corMethod)    
+        y2_resid_var = y1
+        diff_resid_var = paste(y1,'-',y2)
 
     } else {
-        x1_empirical_cor = cor(df[[x1]], df[[y]], method=corMethod)    
-        x2_empirical_cor = cor(df[[x2]], df[[y]], method=corMethod)
+        y1_empirical_cor = cor(df_local[[y1]], df_local[[x]], method=corMethod)    
+        y2_empirical_cor = cor(df_local[[y2]], df_local[[x]], method=corMethod)
+        y1_resid_var = NA
+        y2_resid_var = NA
+        diff_resid_var = NA
     }
 
-    #first variable, y ~ x1
+    #first variable, y1 ~ x
     corr1.boot.sort = sort(corr1.boot)
-    x1_ci = c(corr1.boot.sort[lo], corr1.boot.sort[hi])
-    x1_return = data.frame(lv=y, sv = x1, singleCor=x1_empirical_cor, stringsAsFactors=F,lower=x1_ci[1], upper=x1_ci[2], pvalue=NA, direction = NA) 
+    y1_ci = c(corr1.boot.sort[lo], corr1.boot.sort[hi])
+    y1_return = data.frame(yv=y1, xv = x, resid_var = y1_resid_var , meanBootstrap = mean(corr1.boot),
+        singleCor=y1_empirical_cor, stringsAsFactors=F,lower=y1_ci[1], upper=y1_ci[2], pvalue=NA, direction = NA) 
     
-    #second variable, y ~ x2    
+    #second variable, y2 ~ x   
     corr2.boot.sort = sort(corr2.boot)
-    x2_ci = c(corr2.boot.sort[lo], corr2.boot.sort[hi])
-    x2_return = data.frame(lv=y, sv = x2, singleCor=x2_empirical_cor, stringsAsFactors=F,lower=x2_ci[1], upper=x2_ci[2], pvalue=NA, direction = NA) 
+    y2_ci = c(corr2.boot.sort[lo], corr2.boot.sort[hi])
+    y2_return = data.frame(yv=y2, xv = x, resid_var = y2_resid_var, meanBootstrap = mean(corr2.boot),
+        singleCor=y2_empirical_cor, stringsAsFactors=F,lower=y2_ci[1], upper=y2_ci[2], pvalue=NA, direction = NA) 
     
     # difference between y ~ x1 and y ~ x2
     bootdiff = corr1.boot - corr2.boot
@@ -742,11 +834,37 @@ percentile_bootstrap_cor_diff = function(df, y, x1, x2, alpha=.05, residualize=F
     
     # see https://stats.stackexchange.com/questions/20701/computing-p-value-using-bootstrap-with-r: "percentile bootstrap"
     
-    difference = data.frame(lv=y, sv = paste0(x1,'-',x2), singleCor=NA, stringsAsFactors=F,lower=diffci[1], upper=diffci[2], pvalue, direction = direction)
+    difference = data.frame(yv= paste0(y1,'-',y2) , xv = x , resid_var = diff_resid_var, meanBootstrap = mean(bootdiff),
+        singleCor=NA, stringsAsFactors=F,lower=diffci[1], upper=diffci[2], pvalue, direction = direction)
     
-    combined_df = rbind(difference, x1_return, x2_return)
+    combined_df = rbind(difference, y1_return, y2_return)
     combined_df$corMethod = corMethod
     combined_df$residualize = residualize
     
     return(combined_df)
+}
+
+sig_symbol = function(pvalue, direction){
+    if (direction == 'lower'){
+        if (abs(pvalue) < .001){
+            return("***")####
+        } else if (abs(pvalue) < .01){
+            return("**")
+        } else if (abs(pvalue) < .05){
+            return("*")
+        } else {
+            return("ns")
+        }
+    } else {
+        if (abs(pvalue) < .001){
+            return("***")####
+        } else if (abs(pvalue) < .01){
+            return("**")
+        } else if (abs(pvalue) < .05){
+            return("*")
+        } else {
+            return("ns")
+        }
+    }
+
 }
